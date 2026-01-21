@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using SharedDomain.Models;
+using System.Text.Json;
 
 namespace CrawlWorker.Infrastructure;
 
@@ -37,5 +38,12 @@ public class CrawlerDbContext : DbContext
 
         modelBuilder.Entity<JobEvent>()
             .HasKey(e => e.Id);
+
+        // Configure EventData as JSON
+        modelBuilder.Entity<JobEvent>()
+            .Property(e => e.EventData)
+            .HasConversion(
+                v => v == null ? null : JsonSerializer.Serialize(v, (JsonSerializerOptions?)null),
+                v => string.IsNullOrEmpty(v) ? null : JsonSerializer.Deserialize<Dictionary<string, object>>(v, (JsonSerializerOptions?)null));
     }
 }

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { API_BASE_URL } from '../config'
 import '../styles/screens.css'
 
 export default function JobDetails({ jobId, onBack }) {
@@ -10,13 +11,13 @@ export default function JobDetails({ jobId, onBack }) {
   useEffect(() => {
     const pollJob = async () => {
       try {
-        const response = await fetch(`/api/jobs/${jobId}`)
+        const response = await fetch(`${API_BASE_URL}/api/jobs/${jobId}`)
         if (!response.ok) throw new Error('Failed to fetch job')
         const jobData = await response.json()
         setJob(jobData)
 
         if (jobData.status === 'Completed' || jobData.status === 'Failed') {
-          const detailsResponse = await fetch(`/api/jobs/${jobId}/details`)
+          const detailsResponse = await fetch(`${API_BASE_URL}/api/jobs/${jobId}/details`)
           if (detailsResponse.ok) {
             const detailsData = await detailsResponse.json()
             setDetails(detailsData)

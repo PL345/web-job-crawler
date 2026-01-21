@@ -1,2 +1,36 @@
+# Node.js
 node_modules/
+frontend/dist/
+
+# Environment variables
 .env
+.env.local
+
+# .NET Build artifacts
+**/bin/
+**/obj/
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs and debug files
+*.log
+*.swp
+*.swo
+*~
+
+# IDE
+.idea/
+*.swp
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3

@@ -34,10 +34,14 @@ builder.Services.AddDbContext<CrawlerDbContext>(options =>
 
 var rabbitMqHost = builder.Configuration["RabbitMQ:Host"] ?? "localhost";
 var rabbitMqPort = int.Parse(builder.Configuration["RabbitMQ:Port"] ?? "5672");
+var rabbitMqUsername = builder.Configuration["RabbitMQ:Username"] ?? "guest";
+var rabbitMqPassword = builder.Configuration["RabbitMQ:Password"] ?? "guest";
 var factory = new ConnectionFactory
 {
     HostName = rabbitMqHost,
-    Port = rabbitMqPort
+    Port = rabbitMqPort,
+    UserName = rabbitMqUsername,
+    Password = rabbitMqPassword
 };
 builder.Services.AddSingleton<IConnection>(factory.CreateConnection());
 
@@ -46,14 +50,34 @@ builder.Services.AddScoped<IJobService, JobService>();
 
 var app = builder.Build();
 
-if (app.Environment.IsDevelopment())
+// Apply migrations and create database
+using (var scope = app.Services.CreateScope())
 {
-    app.UseSwagger();
-    app.UseSwaggerUI();
+    var db = scope.ServiceProvider.GetRequiredService<CrawlerDbContext>();
+    db.Database.Migrate();
 }
 
+app.UseSwagger(c => c.RouteTemplate = "swagger/{documentName}/swagger.json");
+app.UseSwaggerUI(c =>
+{
+    c.SwaggerEndpoint("/swagger/v1/swagger.json", "CrawlAPI v1");
+    c.RoutePrefix = "swagger";
+});
+
 app.UseCors("AllowAll");
-app.UseHttpsRedirection();
+
+// Handle preflight requests
+app.Use(async (context, next) =>
+{
+    if (context.Request.Method == "OPTIONS")
+    {
+        context.Response.StatusCode = 200;
+        await context.Response.CompleteAsync();
+        return;
+    }
+    await next();
+});
+
 app.UseAuthorization();
 app.MapControllers();
 

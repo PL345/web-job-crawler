@@ -28,46 +28,68 @@ public class RabbitMqConsumer : IMessageConsumer
     public void SubscribeToJobCreated(Func<CrawlJobCreated, Task> handler)
     {
         _jobCreatedHandler = handler;
+        _logger.LogInformation("Subscribed to job created with handler");
     }
 
     public void Start()
     {
-        _channel = _connection.CreateModel();
-
-        _channel.ExchangeDeclare(exchange: "crawl.events", type: ExchangeType.Topic, durable: true);
-
-        var queueName = _channel.QueueDeclare(queue: "crawl.worker.jobs", durable: true).QueueName;
-        _channel.QueueBind(queue: queueName, exchange: "crawl.events", routingKey: "crawljobcreated");
-
-        var dlqName = _channel.QueueDeclare(queue: "crawl.dlq", durable: true).QueueName;
-
-        var consumer = new AsyncEventingBasicConsumer(_channel);
-        consumer.Received += async (model, ea) =>
+        try
         {
-            try
-            {
-                var body = ea.Body.ToArray();
-                var json = Encoding.UTF8.GetString(body);
-                var message = JsonConvert.DeserializeObject<CrawlJobCreated>(json);
+            _logger.LogInformation("Starting RabbitMQ consumer");
+            _channel = _connection.CreateModel();
+            _logger.LogInformation("Channel created");
 
-                if (message != null && _jobCreatedHandler != null)
-                {
-                    await _jobCreatedHandler(message);
-                    _channel.BasicAck(ea.DeliveryTag, false);
-                }
-            }
-            catch (Exception ex)
+            _channel.ExchangeDeclare(exchange: "crawl.events", type: ExchangeType.Topic, durable: true);
+            _logger.LogInformation("Exchange declared");
+
+            var queueName = _channel.QueueDeclare(queue: "crawl.worker.jobs", durable: true).QueueName;
+            _logger.LogInformation("Queue declared: {QueueName}", queueName);
+            
+            _channel.QueueBind(queue: queueName, exchange: "crawl.events", routingKey: "crawljobcreated");
+            _logger.LogInformation("Queue bound to exchange with routing key crawljobcreated");
+
+            var dlqName = _channel.QueueDeclare(queue: "crawl.dlq", durable: true).QueueName;
+
+            var consumer = new EventingBasicConsumer(_channel);
+            _logger.LogInformation("Consumer created");
+            
+            consumer.Received += (model, ea) =>
             {
-                _logger.LogError(ex, "Error processing message");
-                _channel.BasicNack(ea.DeliveryTag, false, false);
-                SendToDeadLetterQueue(ea.Body.ToArray());
-            }
-        };
+                try
+                {
+                    _logger.LogInformation("Message received");
+                    var body = ea.Body.ToArray();
+                    var json = Encoding.UTF8.GetString(body);
+                    _logger.LogInformation("Message content: {MessageContent}", json);
+                    var message = JsonConvert.DeserializeObject<CrawlJobCreated>(json);
+
+                    if (message != null && _jobCreatedHandler != null)
+                    {
+                        _logger.LogInformation("Processing message with JobId {JobId}", message.JobId);
+                        // Run async handler synchronously
+                        _jobCreatedHandler(message).GetAwaiter().GetResult();
+                        _channel.BasicAck(ea.DeliveryTag, false);
+                        _logger.LogInformation("Message acknowledged");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error processing message");
+                    _channel.BasicNack(ea.DeliveryTag, false, false);
+                    SendToDeadLetterQueue(ea.Body.ToArray());
+                }
+            };
 
         _channel.BasicQos(0, 1, false);
         _channel.BasicConsume(queue: queueName, autoAck: false, consumer: consumer);
 
-        _logger.LogInformation("Worker subscribed to job creation events");
+        _logger.LogInformation("Worker subscribed to job creation events on queue {QueueName}", queueName);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error starting RabbitMQ consumer");
+            throw;
+        }
     }
 
     private void SendToDeadLetterQueue(byte[] body)

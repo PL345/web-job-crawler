@@ -22,10 +22,14 @@ var builder = Host.CreateDefaultBuilder(args)
 
         var rabbitMqHost = context.Configuration["RabbitMQ:Host"] ?? "localhost";
         var rabbitMqPort = int.Parse(context.Configuration["RabbitMQ:Port"] ?? "5672");
+        var rabbitMqUsername = context.Configuration["RabbitMQ:Username"] ?? "guest";
+        var rabbitMqPassword = context.Configuration["RabbitMQ:Password"] ?? "guest";
         var factory = new ConnectionFactory
         {
             HostName = rabbitMqHost,
-            Port = rabbitMqPort
+            Port = rabbitMqPort,
+            UserName = rabbitMqUsername,
+            Password = rabbitMqPassword
         };
 
         services.AddSingleton<IConnection>(factory.CreateConnection());

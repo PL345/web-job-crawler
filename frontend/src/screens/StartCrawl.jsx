@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { API_BASE_URL } from '../config'
 import '../styles/screens.css'
 
 export default function StartCrawl({ onJobCreated }) {
@@ -13,7 +14,7 @@ export default function StartCrawl({ onJobCreated }) {
     setLoading(true)
 
     try {
-      const response = await fetch('/api/jobs/create', {
+      const response = await fetch(`${API_BASE_URL}/api/jobs/create`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url, maxDepth: parseInt(maxDepth) })

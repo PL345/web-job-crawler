@@ -24,24 +24,31 @@ public class RabbitMqPublisher : IMessagePublisher
     {
         try
         {
-            using var channel = _connection.CreateModel();
+            using (var channel = _connection.CreateModel())
+            {
+                channel.ExchangeDeclare(exchange: exchangeName, type: ExchangeType.Topic, durable: true);
 
-            channel.ExchangeDeclare(exchange: exchangeName, type: ExchangeType.Topic, durable: true);
+                var json = JsonConvert.SerializeObject(message);
+                var body = System.Text.Encoding.UTF8.GetBytes(json);
 
-            var json = JsonConvert.SerializeObject(message);
-            var body = System.Text.Encoding.UTF8.GetBytes(json);
+                var routingKey = GetRoutingKey<T>();
 
-            var routingKey = GetRoutingKey<T>();
+                var basicProperties = channel.CreateBasicProperties();
+                basicProperties.Persistent = true;
+                basicProperties.DeliveryMode = 2; // 2 = persistent
 
-            channel.BasicPublish(
-                exchange: exchangeName,
-                routingKey: routingKey,
-                basicProperties: null,
-                body: body
-            );
+                channel.BasicPublish(
+                    exchange: exchangeName,
+                    routingKey: routingKey,
+                    basicProperties: basicProperties,
+                    body: body
+                );
 
-            _logger.LogInformation("Published {MessageType} to {Exchange} with routing key {RoutingKey}",
-                typeof(T).Name, exchangeName, routingKey);
+                _logger.LogInformation("Published {MessageType} to {Exchange} with routing key {RoutingKey}",
+                    typeof(T).Name, exchangeName, routingKey);
+            }
+
+            await Task.CompletedTask;
         }
         catch (Exception ex)
         {

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { API_BASE_URL } from '../config'
 import '../styles/screens.css'
 
 export default function History({ onSelectJob }) {
@@ -12,7 +13,7 @@ export default function History({ onSelectJob }) {
     const fetchJobs = async () => {
       setLoading(true)
       try {
-        const response = await fetch(`/api/jobs/history?page=${page}&pageSize=10`)
+        const response = await fetch(`${API_BASE_URL}/api/jobs/history?page=${page}&pageSize=10`)
         if (!response.ok) throw new Error('Failed to fetch history')
         const data = await response.json()
         setJobs(data.jobs)

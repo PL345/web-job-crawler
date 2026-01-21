@@ -32,18 +32,28 @@ var dbConnectionString = builder.Configuration.GetConnectionString("DefaultConne
 builder.Services.AddDbContext<CrawlerDbContext>(options =>
     options.UseNpgsql(dbConnectionString));
 
-var rabbitMqHost = builder.Configuration["RabbitMQ:Host"] ?? "localhost";
-var rabbitMqPort = int.Parse(builder.Configuration["RabbitMQ:Port"] ?? "5672");
-var rabbitMqUsername = builder.Configuration["RabbitMQ:Username"] ?? "guest";
-var rabbitMqPassword = builder.Configuration["RabbitMQ:Password"] ?? "guest";
-var factory = new ConnectionFactory
+// Try to connect to RabbitMQ, but don't fail if it's not available
+try
 {
-    HostName = rabbitMqHost,
-    Port = rabbitMqPort,
-    UserName = rabbitMqUsername,
-    Password = rabbitMqPassword
-};
-builder.Services.AddSingleton<IConnection>(factory.CreateConnection());
+    var rabbitMqHost = builder.Configuration["RabbitMQ:Host"] ?? "localhost";
+    var rabbitMqPort = int.Parse(builder.Configuration["RabbitMQ:Port"] ?? "5672");
+    var rabbitMqUsername = builder.Configuration["RabbitMQ:Username"] ?? "guest";
+    var rabbitMqPassword = builder.Configuration["RabbitMQ:Password"] ?? "guest";
+    var factory = new ConnectionFactory
+    {
+        HostName = rabbitMqHost,
+        Port = rabbitMqPort,
+        UserName = rabbitMqUsername,
+        Password = rabbitMqPassword
+    };
+    builder.Services.AddSingleton<IConnection>(factory.CreateConnection());
+    Log.Information("Connected to RabbitMQ successfully");
+}
+catch (Exception ex)
+{
+    Log.Warning("Could not connect to RabbitMQ: {Error}. Running without message queue.", ex.Message);
+    builder.Services.AddSingleton<IConnection>((IConnection)null!);
+}
 
 builder.Services.AddScoped<IMessagePublisher, RabbitMqPublisher>();
 builder.Services.AddScoped<IJobService, JobService>();

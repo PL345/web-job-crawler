@@ -22,6 +22,12 @@ public class RabbitMqPublisher : IMessagePublisher
 
     public async Task PublishAsync<T>(T message, string exchangeName) where T : class
     {
+        if (_connection == null)
+        {
+            _logger.LogWarning("RabbitMQ connection is not available. Message of type {MessageType} will not be published.", typeof(T).Name);
+            return;
+        }
+
         try
         {
             using (var channel = _connection.CreateModel())

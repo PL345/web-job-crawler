@@ -96,7 +96,16 @@ public class JobService : IJobService
             .OrderBy(p => p.CreatedAt)
             .ToListAsync();
 
-        var pageHierarchy = BuildPageHierarchy(job.InputUrl, pages);
+        // For now, let's return a flat list to avoid hierarchy issues
+        var pageNodes = pages.Select(p => new PageNodeDto
+        {
+            Url = p.Url,
+            Title = p.Title,
+            DomainLinkRatio = p.DomainLinkRatio,
+            OutgoingLinksCount = p.OutgoingLinksCount,
+            InternalLinksCount = p.InternalLinksCount,
+            Children = new List<PageNodeDto>() // Empty for now
+        }).ToList();
 
         return new JobDetailsDto
         {
@@ -107,25 +116,53 @@ public class JobService : IJobService
             StartedAt = job.StartedAt,
             CompletedAt = job.CompletedAt,
             TotalPagesFound = job.TotalPagesFound,
-            Pages = pageHierarchy
+            Pages = pageNodes
         };
     }
 
-    private List<PageNodeDto> BuildPageHierarchy(string rootUrl, List<CrawledPage> pages)
+    private List<PageNodeDto> BuildPageHierarchy(string rootUrl, List<CrawledPage> pages, List<PageLink> pageLinks)
     {
         var pageMap = pages.ToDictionary(p => p.NormalizedUrl);
-        var roots = pages.Where(p => p.Url == rootUrl || p.NormalizedUrl == SharedDomain.Utilities.UrlNormalizer.Normalize(rootUrl))
-            .ToList();
+        var pageById = pages.ToDictionary(p => p.Id);
+        
+        // Find root pages (pages that match the input URL)
+        var normalizedRootUrl = SharedDomain.Utilities.UrlNormalizer.Normalize(rootUrl);
+        var roots = pages.Where(p => p.NormalizedUrl == normalizedRootUrl).ToList();
 
-        return roots.Select(root => BuildNode(root, pageMap, new HashSet<Guid>())).ToList();
+        return roots.Select(root => BuildNode(root, pageById, pageLinks, new HashSet<Guid>())).ToList();
     }
 
-    private PageNodeDto BuildNode(CrawledPage page, Dictionary<string, CrawledPage> pageMap, HashSet<Guid> visited)
+    private PageNodeDto BuildNode(CrawledPage page, Dictionary<Guid, CrawledPage> pageById, List<PageLink> pageLinks, HashSet<Guid> visited)
     {
         if (visited.Contains(page.Id))
-            return new PageNodeDto { Url = page.Url, DomainLinkRatio = page.DomainLinkRatio };
+        {
+            // Return a simple node without children to break the cycle
+            return new PageNodeDto 
+            { 
+                Url = page.Url, 
+                Title = page.Title,
+                DomainLinkRatio = page.DomainLinkRatio,
+                OutgoingLinksCount = page.OutgoingLinksCount,
+                InternalLinksCount = page.InternalLinksCount,
+                Children = new List<PageNodeDto>() // Empty to break cycle
+            };
+        }
 
         visited.Add(page.Id);
+
+        // Find child pages that this page links to
+        var childLinks = pageLinks.Where(pl => pl.SourcePageId == page.Id).ToList();
+        var children = new List<PageNodeDto>();
+
+        foreach (var link in childLinks)
+        {
+            // Find the target page if it was crawled
+            var targetPage = pageById.Values.FirstOrDefault(p => p.NormalizedUrl == SharedDomain.Utilities.UrlNormalizer.Normalize(link.TargetUrl));
+            if (targetPage != null && !visited.Contains(targetPage.Id))
+            {
+                children.Add(BuildNode(targetPage, pageById, pageLinks, new HashSet<Guid>(visited))); // Pass copy of visited set
+            }
+        }
 
         return new PageNodeDto
         {
@@ -134,7 +171,7 @@ public class JobService : IJobService
             DomainLinkRatio = page.DomainLinkRatio,
             OutgoingLinksCount = page.OutgoingLinksCount,
             InternalLinksCount = page.InternalLinksCount,
-            Children = new List<PageNodeDto>()
+            Children = children
         };
     }
 }

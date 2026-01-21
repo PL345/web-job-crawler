@@ -127,6 +127,17 @@ public class CrawlingService : ICrawlingService
 
                 discoveredUrls.Add(resolvedUrl);
 
+                // Save page link relationship
+                var pageLink = new PageLink
+                {
+                    Id = Guid.NewGuid(),
+                    JobId = jobId,
+                    SourcePageId = Guid.Empty, // Will be set after page is saved
+                    TargetUrl = resolvedUrl,
+                    LinkText = link.InnerText?.Trim() ?? string.Empty,
+                    CreatedAt = DateTime.UtcNow
+                };
+
                 if (UrlNormalizer.IsSameDomain(resolvedUrl, startUrl))
                     internalLinkCount++;
                 else
@@ -160,6 +171,51 @@ public class CrawlingService : ICrawlingService
             {
                 _db.CrawledPages.Add(crawledPage);
                 await _db.SaveChangesAsync();
+
+                // Batch approach: get all existing links for this page first
+                var existingTargetUrlsList = await _db.PageLinks
+                    .Where(pl => pl.SourcePageId == crawledPage.Id)
+                    .Select(pl => pl.TargetUrl)
+                    .ToListAsync();
+                
+                var existingTargetUrls = new HashSet<string>(existingTargetUrlsList);
+
+                // Remove duplicates from discovered URLs and filter out existing ones
+                var uniqueNewUrls = discoveredUrls
+                    .Distinct()
+                    .Where(url => !existingTargetUrls.Contains(url))
+                    .ToList();
+
+                // Add only the new unique links
+                foreach (var discoveredUrl in uniqueNewUrls)
+                {
+                    var pageLink = new PageLink
+                    {
+                        Id = Guid.NewGuid(),
+                        JobId = jobId,
+                        SourcePageId = crawledPage.Id,
+                        TargetUrl = discoveredUrl,
+                        LinkText = string.Empty,
+                        CreatedAt = DateTime.UtcNow
+                    };
+
+                    _db.PageLinks.Add(pageLink);
+                }
+                
+                if (uniqueNewUrls.Any())
+                {
+                    try
+                    {
+                        await _db.SaveChangesAsync();
+                        _logger.LogInformation("Saved {NewLinkCount} new page links for {Url}", uniqueNewUrls.Count, pageUrl);
+                    }
+                    catch (DbUpdateException ex) when (ex.InnerException?.Message.Contains("duplicate") ?? false)
+                    {
+                        _logger.LogWarning("Duplicate key error despite checking - this shouldn't happen for {Url}", pageUrl);
+                        // Clear the context and continue
+                        _db.ChangeTracker.Clear();
+                    }
+                }
             }
             catch (DbUpdateException ex) when (ex.InnerException?.Message.Contains("duplicate") ?? false)
             {

@@ -7,6 +7,7 @@ export default function JobDetails({ jobId, onBack }) {
   const [details, setDetails] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [cancelling, setCancelling] = useState(false)
 
   useEffect(() => {
     let isInitialLoad = true
@@ -66,7 +67,30 @@ export default function JobDetails({ jobId, onBack }) {
     'Running': '#2563eb',
     'Completed': '#059669',
     'Failed': '#dc2626',
-    'Canceled': '#666'
+    'Cancelled': '#666'
+  }
+
+  const handleCancelJob = async () => {
+    if (!confirm('Are you sure you want to cancel this job?')) {
+      return
+    }
+
+    setCancelling(true)
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/jobs/${jobId}/cancel`, {
+        method: 'POST'
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to cancel job')
+      }
+
+      // Job will be updated by the polling
+    } catch (err) {
+      setError('Failed to cancel job: ' + err.message)
+    } finally {
+      setCancelling(false)
+    }
   }
 
   return (
@@ -74,7 +98,18 @@ export default function JobDetails({ jobId, onBack }) {
       <button onClick={onBack} className="btn-back">← Back</button>
 
       <div className="job-header">
-        <h2>Job Details</h2>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <h2>Job Details</h2>
+          {(job?.status === 'Pending' || job?.status === 'Running') && (
+            <button
+              onClick={handleCancelJob}
+              className="btn-cancel"
+              disabled={cancelling}
+            >
+              {cancelling ? 'Cancelling...' : 'Cancel Job'}
+            </button>
+          )}
+        </div>
         <div className="job-info">
           <div className="info-item">
             <span className="label">Job ID:</span>

@@ -9,27 +9,27 @@ export default function History({ onSelectJob }) {
   const [page, setPage] = useState(1)
   const [totalPages, setTotalPages] = useState(0)
   const [isUpdating, setIsUpdating] = useState(false)
+  const [cancellingJobId, setCancellingJobId] = useState(null)
+
+  const fetchJobs = async (isInitialLoad = false) => {
+    if (isInitialLoad) setLoading(true)
+    else setIsUpdating(true)
+    
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/jobs/history?page=${page}&pageSize=10`)
+      if (!response.ok) throw new Error('Failed to fetch history')
+      const data = await response.json()
+      setJobs(data.jobs)
+      setTotalPages(data.totalPages)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      if (isInitialLoad) setLoading(false)
+      else setIsUpdating(false)
+    }
+  }
 
   useEffect(() => {
-    const fetchJobs = async (isInitialLoad = false) => {
-      if (isInitialLoad) setLoading(true)
-      else setIsUpdating(true)
-      
-      try {
-        const response = await fetch(`${API_BASE_URL}/api/jobs/history?page=${page}&pageSize=10`)
-        if (!response.ok) throw new Error('Failed to fetch history')
-        const data = await response.json()
-        setJobs(data.jobs)
-        setTotalPages(data.totalPages)
-      } catch (err) {
-        setError(err.message)
-      } finally {
-        if (isInitialLoad) setLoading(false)
-        else setIsUpdating(false)
-      }
-    }
-
-    // Initial load with loading state
     fetchJobs(true)
     
     // Poll for updates every 3 seconds WITHOUT loading state
@@ -62,12 +62,36 @@ export default function History({ onSelectJob }) {
     )
   }
 
+  const handleCancelJob = async (jobId) => {
+    if (!confirm('Are you sure you want to cancel this job?')) {
+      return
+    }
+
+    setCancellingJobId(jobId)
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/jobs/${jobId}/cancel`, {
+        method: 'POST'
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to cancel job')
+      }
+
+      // Refresh the jobs list
+      fetchJobs()
+    } catch (err) {
+      setError('Failed to cancel job: ' + err.message)
+    } finally {
+      setCancellingJobId(null)
+    }
+  }
+
   const statusColor = {
     'Pending': '#666',
     'Running': '#2563eb',
     'Completed': '#059669',
     'Failed': '#dc2626',
-    'Canceled': '#666'
+    'Cancelled': '#666'
   }
 
   if (loading) {
@@ -113,12 +137,23 @@ export default function History({ onSelectJob }) {
                   <td>{job.totalPagesFound || job.pagesProcessed || 0}</td>
                   <td>{new Date(job.createdAt).toLocaleString()}</td>
                   <td>
-                    <button
-                      onClick={() => onSelectJob(job.id)}
-                      className="btn-view"
-                    >
-                      View
-                    </button>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <button
+                        onClick={() => onSelectJob(job.id)}
+                        className="btn-view"
+                      >
+                        View
+                      </button>
+                      {(job.status === 'Pending' || job.status === 'Running') && (
+                        <button
+                          onClick={() => handleCancelJob(job.id)}
+                          className="btn-cancel"
+                          disabled={cancellingJobId === job.id}
+                        >
+                          {cancellingJobId === job.id ? 'Cancelling...' : 'Cancel'}
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}

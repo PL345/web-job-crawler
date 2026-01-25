@@ -9,6 +9,8 @@ export default function JobDetails({ jobId, onBack }) {
   const [error, setError] = useState('')
 
   useEffect(() => {
+    let isInitialLoad = true
+    
     const pollJob = async () => {
       try {
         const response = await fetch(`${API_BASE_URL}/api/jobs/${jobId}`)
@@ -22,7 +24,12 @@ export default function JobDetails({ jobId, onBack }) {
             const detailsData = await detailsResponse.json()
             setDetails(detailsData)
           }
+        }
+        
+        // Only set loading false after first successful load
+        if (isInitialLoad) {
           setLoading(false)
+          isInitialLoad = false
         }
       } catch (err) {
         setError(err.message)
@@ -89,8 +96,22 @@ export default function JobDetails({ jobId, onBack }) {
         </div>
         <div className="status-row">
           <span className="label">Pages Found:</span>
-          <span className="value">{job?.totalPagesFound || 0}</span>
+          <span className="value">{job?.totalPagesFound || job?.pagesProcessed || 0}</span>
         </div>
+        {job?.status === 'Running' && job?.pagesProcessed > 0 && (
+          <div className="status-row">
+            <span className="label">Pages Processed:</span>
+            <span className="value">{job.pagesProcessed}</span>
+          </div>
+        )}
+        {job?.currentUrl && (
+          <div className="status-row">
+            <span className="label">Currently Crawling:</span>
+            <span className="value current-url" title={job.currentUrl}>
+              {job.currentUrl}
+            </span>
+          </div>
+        )}
         {job?.startedAt && (
           <div className="status-row">
             <span className="label">Started:</span>
@@ -114,7 +135,20 @@ export default function JobDetails({ jobId, onBack }) {
       {job?.status === 'Running' && (
         <div className="progress-container">
           <div className="spinner"></div>
-          <p>Crawling in progress...</p>
+          <div className="progress-text">
+            <p>Crawling in progress...</p>
+            {job.pagesProcessed > 0 && (
+              <p className="progress-stats">
+                {job.pagesProcessed} pages processed
+              </p>
+            )}
+            {job.currentUrl && (
+              <p className="current-page">
+                <strong>Currently processing:</strong><br />
+                <span className="url-text">{job.currentUrl}</span>
+              </p>
+            )}
+          </div>
         </div>
       )}
 

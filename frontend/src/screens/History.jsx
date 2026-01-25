@@ -16,7 +16,7 @@ export default function History({ onSelectJob }) {
     else setIsUpdating(true)
     
     try {
-      const response = await fetch(`${API_BASE_URL}/api/jobs/history?page=${page}&pageSize=10`)
+      const response = await fetch(`${API_BASE_URL}/jobs/history?page=${page}&pageSize=10`)
       if (!response.ok) throw new Error('Failed to fetch history')
       const data = await response.json()
       setJobs(data.jobs)
@@ -56,6 +56,20 @@ export default function History({ onSelectJob }) {
         </div>
       )
     }
+    if (job.status === 'Failed') {
+      return (
+        <div className="failed-status">
+          <span className="status-badge" style={{ color: statusColor[job.status] }}>
+            {job.status}
+          </span>
+          {job.failureReason && (
+            <small className="failure-hint" title={job.failureReason}>
+              {job.failureReason.length > 50 ? job.failureReason.substring(0, 50) + '...' : job.failureReason}
+            </small>
+          )}
+        </div>
+      )
+    }
     return (
       <span className="status-badge" style={{ color: statusColor[job.status] }}>
         {job.status}
@@ -70,7 +84,7 @@ export default function History({ onSelectJob }) {
 
     setCancellingJobId(jobId)
     try {
-      const response = await fetch(`${API_BASE_URL}/api/jobs/${jobId}/cancel`, {
+      const response = await fetch(`${API_BASE_URL}/jobs/${jobId}/cancel`, {
         method: 'POST'
       })
 

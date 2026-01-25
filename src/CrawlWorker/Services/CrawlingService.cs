@@ -89,7 +89,13 @@ public class CrawlingService : ICrawlingService
                 job.UpdatedAt = DateTime.UtcNow;
                 await _db.SaveChangesAsync();
 
-                await CrawlPageAsync(jobId, url, startUrl, depth, urlsToProcess, startDomain, maxDepth, processedUrls, queuedUrls);
+                var crawlResult = await CrawlPageAsync(jobId, url, startUrl, depth, urlsToProcess, startDomain, maxDepth, processedUrls, queuedUrls);
+                
+                // If this is the start URL and it failed, fail the entire job
+                if (url == normalizedStartUrl && !crawlResult)
+                {
+                    throw new HttpRequestException($"Failed to crawl start URL: {url}. The website may be blocking requests or is unreachable.");
+                }
 
                 _logger.LogInformation("Queue status: {QueueCount} URLs to process, {ProcessedCount} processed, {QueuedCount} queued", 
                     urlsToProcess.Count, processedUrls.Count, queuedUrls.Count);
@@ -111,14 +117,32 @@ public class CrawlingService : ICrawlingService
         {
             _logger.LogError(ex, "Error crawling job {JobId}", jobId);
             job.Status = "Failed";
-            job.FailureReason = ex.Message;
+            
+            // Provide detailed failure reason based on exception type
+            job.FailureReason = ex switch
+            {
+                HttpRequestException httpEx => $"Network error: {httpEx.Message}",
+                TaskCanceledException => "Request timeout - the website took too long to respond",
+                DbUpdateException dbEx => $"Database error: {dbEx.InnerException?.Message ?? dbEx.Message}",
+                InvalidOperationException => $"Invalid operation: {ex.Message}",
+                _ => $"Crawl failed: {ex.Message}"
+            };
+            
             job.CompletedAt = DateTime.UtcNow;
             job.UpdatedAt = DateTime.UtcNow;
-            await _db.SaveChangesAsync();
+            
+            try
+            {
+                await _db.SaveChangesAsync();
+            }
+            catch (Exception saveEx)
+            {
+                _logger.LogError(saveEx, "Failed to save error state for job {JobId}", jobId);
+            }
         }
     }
 
-    private async Task CrawlPageAsync(Guid jobId, string pageUrl, string startUrl, int depth,
+    private async Task<bool> CrawlPageAsync(Guid jobId, string pageUrl, string startUrl, int depth,
         Queue<(string, int)> urlsToProcess, string startDomain, int maxDepth,
         HashSet<string> processedUrls, HashSet<string> queuedUrls)
     {
@@ -128,13 +152,13 @@ public class CrawlingService : ICrawlingService
                 .FirstOrDefaultAsync(p => p.JobId == jobId && p.NormalizedUrl == pageUrl);
 
             if (existingPage != null)
-                return;
+                return true; // Already processed, consider it a success
 
             var response = await GetPageWithRetryAsync(pageUrl);
             if (response == null)
             {
                 _logger.LogWarning("Failed to fetch page {Url} after retries, skipping", pageUrl);
-                return;
+                return false; // Failed to fetch
             }
             
             var statusCode = (int)response.StatusCode;
@@ -142,13 +166,13 @@ public class CrawlingService : ICrawlingService
             if (!response.IsSuccessStatusCode)
             {
                 _logger.LogWarning("Page {Url} returned status code {StatusCode}, skipping", pageUrl, statusCode);
-                return;
+                return false; // Non-success status code
             }
 
             if (!response.Content.Headers.ContentType?.MediaType?.StartsWith("text/html") ?? false)
             {
                 _logger.LogInformation("Skipping non-HTML page {Url}", pageUrl);
-                return;
+                return true; // Not an error, just not HTML
             }
 
             var content = await response.Content.ReadAsStringAsync();
@@ -288,14 +312,18 @@ public class CrawlingService : ICrawlingService
 
             _logger.LogInformation("Crawled page {Url} - found {LinkCount} total links ({InternalLinks} internal, {ExternalLinks} external). Page size: {ContentLength} chars",
                 pageUrl, discoveredUrls.Count, internalLinkCount, externalLinkCount, content.Length);
+            
+            return true; // Successfully crawled
         }
         catch (HttpRequestException ex)
         {
             _logger.LogWarning(ex, "Failed to crawl page {Url}", pageUrl);
+            return false; // Network error
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error processing page {Url}", pageUrl);
+            return false; // Processing error
         }
     }
 

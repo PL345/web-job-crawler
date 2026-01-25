@@ -77,7 +77,7 @@ export default function JobDetails({ jobId, onBack }) {
 
     setCancelling(true)
     try {
-      const response = await fetch(`${API_BASE_URL}/api/jobs/${jobId}/cancel`, {
+      const response = await fetch(`${API_BASE_URL}/jobs/${jobId}/cancel`, {
         method: 'POST'
       })
 
@@ -187,9 +187,32 @@ export default function JobDetails({ jobId, onBack }) {
         </div>
       )}
 
+      {job?.status === 'Failed' && (
+        <div className="failure-container">
+          <div className="failure-icon">⚠️</div>
+          <div className="failure-content">
+            <h3>Crawl Failed</h3>
+            <p className="failure-reason">{job.failureReason || 'An unknown error occurred'}</p>
+            {job.pagesProcessed > 0 && (
+              <p className="partial-results">
+                {job.pagesProcessed} pages were successfully crawled before the failure.
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+
       {details && job?.status === 'Completed' && (
         <div className="pages-tree">
           <h3>Discovered Pages</h3>
+          <PageTree pages={details.pages} />
+        </div>
+      )}
+
+      {details && job?.status === 'Failed' && job?.pagesProcessed > 0 && (
+        <div className="pages-tree">
+          <h3>Partially Discovered Pages</h3>
+          <p className="partial-note">These pages were crawled before the failure occurred.</p>
           <PageTree pages={details.pages} />
         </div>
       )}

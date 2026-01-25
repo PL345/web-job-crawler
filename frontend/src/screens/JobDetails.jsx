@@ -77,7 +77,7 @@ export default function JobDetails({ jobId, onBack }) {
 
     setCancelling(true)
     try {
-      const response = await fetch(`${API_BASE_URL}/api/jobs/${jobId}/cancel`, {
+      const response = await fetch(`${API_BASE_URL}/jobs/${jobId}/cancel`, {
         method: 'POST'
       })
 

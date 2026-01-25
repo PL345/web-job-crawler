@@ -81,6 +81,24 @@ public class JobsController : ControllerBase
     {
         return Ok(new { status = "healthy", timestamp = DateTime.UtcNow });
     }
+
+    [HttpPost("{jobId}/cancel")]
+    public async Task<IActionResult> CancelJob(Guid jobId)
+    {
+        try
+        {
+            var success = await _jobService.CancelJobAsync(jobId);
+            if (!success)
+                return NotFound(new { error = "Job not found or cannot be cancelled" });
+
+            return Ok(new { message = "Job cancelled successfully" });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error cancelling job {JobId}", jobId);
+            return StatusCode(500, new { error = "Internal server error" });
+        }
+    }
 }
 
 public class CreateJobRequest

@@ -11,6 +11,7 @@ public interface IJobService
     Task<CrawlJob?> GetJobAsync(Guid jobId);
     Task<(List<CrawlJob> Jobs, int Total)> GetJobHistoryAsync(int page, int pageSize);
     Task<JobDetailsDto> GetJobDetailsAsync(Guid jobId);
+    Task<bool> CancelJobAsync(Guid jobId);
 }
 
 public class JobService : IJobService
@@ -120,6 +121,28 @@ public class JobService : IJobService
             PagesProcessed = job.PagesProcessed,
             Pages = pageNodes
         };
+    }
+
+    public async Task<bool> CancelJobAsync(Guid jobId)
+    {
+        var job = await _db.CrawlJobs.FindAsync(jobId);
+        if (job == null)
+            return false;
+
+        // Only allow cancelling jobs that are Pending or Running
+        if (job.Status != "Pending" && job.Status != "Running")
+            return false;
+
+        job.Status = "Cancelled";
+        job.CompletedAt = DateTime.UtcNow;
+        job.UpdatedAt = DateTime.UtcNow;
+        job.FailureReason = "Cancelled by user";
+
+        await _db.SaveChangesAsync();
+
+        _logger.LogInformation("Job {JobId} cancelled by user", jobId);
+
+        return true;
     }
 
     private List<PageNodeDto> BuildPageHierarchy(string rootUrl, List<CrawledPage> pages, List<PageLink> pageLinks)

@@ -58,15 +58,28 @@ public class CrawlingService : ICrawlingService
 
             var urlsToProcess = new Queue<(string Url, int Depth)>();
             var processedUrls = new HashSet<string>();
+            var queuedUrls = new HashSet<string>(); // Track URLs already in queue
 
             urlsToProcess.Enqueue((normalizedStartUrl, 0));
+            queuedUrls.Add(normalizedStartUrl);
 
             while (urlsToProcess.Count > 0 && processedUrls.Count < MaxPagesPerJob)
             {
                 var (url, depth) = urlsToProcess.Dequeue();
+                
+                // Remove from queued set since we're processing it now
+                queuedUrls.Remove(url);
 
                 if (string.IsNullOrEmpty(url) || processedUrls.Contains(url) || depth > maxDepth)
                     continue;
+
+                // Check if job was cancelled
+                await _db.Entry(job).ReloadAsync();
+                if (job.Status == "Cancelled")
+                {
+                    _logger.LogInformation("Job {JobId} was cancelled, stopping crawl", jobId);
+                    return;
+                }
 
                 processedUrls.Add(url);
 
@@ -76,9 +89,12 @@ public class CrawlingService : ICrawlingService
                 job.UpdatedAt = DateTime.UtcNow;
                 await _db.SaveChangesAsync();
 
-                await CrawlPageAsync(jobId, url, startUrl, depth, urlsToProcess, startDomain, maxDepth, processedUrls);
+                await CrawlPageAsync(jobId, url, startUrl, depth, urlsToProcess, startDomain, maxDepth, processedUrls, queuedUrls);
 
-                await Task.Delay(500);
+                _logger.LogInformation("Queue status: {QueueCount} URLs to process, {ProcessedCount} processed, {QueuedCount} queued", 
+                    urlsToProcess.Count, processedUrls.Count, queuedUrls.Count);
+
+                await Task.Delay(2000); // 2 second delay to be more respectful to servers
             }
 
             job.Status = "Completed";
@@ -104,7 +120,7 @@ public class CrawlingService : ICrawlingService
 
     private async Task CrawlPageAsync(Guid jobId, string pageUrl, string startUrl, int depth,
         Queue<(string, int)> urlsToProcess, string startDomain, int maxDepth,
-        HashSet<string> processedUrls)
+        HashSet<string> processedUrls, HashSet<string> queuedUrls)
     {
         try
         {
@@ -115,9 +131,19 @@ public class CrawlingService : ICrawlingService
                 return;
 
             var response = await GetPageWithRetryAsync(pageUrl);
-            if (response == null) return;
+            if (response == null)
+            {
+                _logger.LogWarning("Failed to fetch page {Url} after retries, skipping", pageUrl);
+                return;
+            }
             
             var statusCode = (int)response.StatusCode;
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning("Page {Url} returned status code {StatusCode}, skipping", pageUrl, statusCode);
+                return;
+            }
 
             if (!response.Content.Headers.ContentType?.MediaType?.StartsWith("text/html") ?? false)
             {
@@ -145,26 +171,44 @@ public class CrawlingService : ICrawlingService
                 if (string.IsNullOrEmpty(resolvedUrl))
                     continue;
 
-                discoveredUrls.Add(resolvedUrl);
+                // Normalize the URL immediately to ensure consistency
+                var normalizedResolvedUrl = UrlNormalizer.Normalize(resolvedUrl);
+                
+                if (string.IsNullOrEmpty(normalizedResolvedUrl))
+                    continue;
 
-                // Save page link relationship
-                var pageLink = new PageLink
+                discoveredUrls.Add(normalizedResolvedUrl);
+
+                if (UrlNormalizer.IsSameDomain(normalizedResolvedUrl, startUrl))
                 {
-                    Id = Guid.NewGuid(),
-                    JobId = jobId,
-                    SourcePageId = Guid.Empty, // Will be set after page is saved
-                    TargetUrl = resolvedUrl,
-                    LinkText = link.InnerText?.Trim() ?? string.Empty,
-                    CreatedAt = DateTime.UtcNow
-                };
-
-                if (UrlNormalizer.IsSameDomain(resolvedUrl, startUrl))
                     internalLinkCount++;
+                    
+                    // Only add internal links to queue if not already processed and not already queued
+                    if (depth < maxDepth && 
+                        !processedUrls.Contains(normalizedResolvedUrl) && 
+                        !queuedUrls.Contains(normalizedResolvedUrl))
+                    {
+                        urlsToProcess.Enqueue((normalizedResolvedUrl, depth + 1));
+                        queuedUrls.Add(normalizedResolvedUrl);
+                        _logger.LogInformation("Added internal URL to queue: {Url} at depth {Depth}", normalizedResolvedUrl, depth + 1);
+                    }
+                    else if (processedUrls.Contains(normalizedResolvedUrl))
+                    {
+                        _logger.LogDebug("Skipping already processed URL: {Url}", normalizedResolvedUrl);
+                    }
+                    else if (queuedUrls.Contains(normalizedResolvedUrl))
+                    {
+                        _logger.LogDebug("Skipping already queued URL: {Url}", normalizedResolvedUrl);
+                    }
+                    else if (depth >= maxDepth)
+                    {
+                        _logger.LogDebug("Skipping URL (max depth reached): {Url} at depth {Depth}", normalizedResolvedUrl, depth);
+                    }
+                }
                 else
+                {
                     externalLinkCount++;
-
-                if (depth < maxDepth && !processedUrls.Contains(resolvedUrl))
-                    urlsToProcess.Enqueue((resolvedUrl, depth + 1));
+                }
             }
 
             var domainLinkRatio = (discoveredUrls.Count > 0)

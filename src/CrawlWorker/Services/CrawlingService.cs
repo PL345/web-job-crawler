@@ -25,6 +25,16 @@ public class CrawlingService : ICrawlingService
         _logger = logger;
         _httpClient = httpClient;
         _httpClient.Timeout = TimeSpan.FromSeconds(TimeoutSeconds);
+        
+        // Add consistent headers to get more predictable responses
+        _httpClient.DefaultRequestHeaders.Add("User-Agent", 
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36");
+        _httpClient.DefaultRequestHeaders.Add("Accept", 
+            "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8");
+        _httpClient.DefaultRequestHeaders.Add("Accept-Language", "en-US,en;q=0.5");
+        _httpClient.DefaultRequestHeaders.Add("Accept-Encoding", "gzip, deflate");
+        _httpClient.DefaultRequestHeaders.Add("Connection", "keep-alive");
+        _httpClient.DefaultRequestHeaders.Add("Upgrade-Insecure-Requests", "1");
     }
 
     public async Task CrawlAsync(Guid jobId, string startUrl, int maxDepth)
@@ -60,6 +70,12 @@ public class CrawlingService : ICrawlingService
 
                 processedUrls.Add(url);
 
+                // Update progress before crawling each page
+                job.CurrentUrl = url;
+                job.PagesProcessed = processedUrls.Count;
+                job.UpdatedAt = DateTime.UtcNow;
+                await _db.SaveChangesAsync();
+
                 await CrawlPageAsync(jobId, url, startUrl, depth, urlsToProcess, startDomain, maxDepth, processedUrls);
 
                 await Task.Delay(500);
@@ -68,6 +84,8 @@ public class CrawlingService : ICrawlingService
             job.Status = "Completed";
             job.CompletedAt = DateTime.UtcNow;
             job.TotalPagesFound = processedUrls.Count;
+            job.PagesProcessed = processedUrls.Count;
+            job.CurrentUrl = null; // Clear current URL when completed
             job.UpdatedAt = DateTime.UtcNow;
             await _db.SaveChangesAsync();
 
@@ -96,7 +114,9 @@ public class CrawlingService : ICrawlingService
             if (existingPage != null)
                 return;
 
-            var response = await _httpClient.GetAsync(pageUrl);
+            var response = await GetPageWithRetryAsync(pageUrl);
+            if (response == null) return;
+            
             var statusCode = (int)response.StatusCode;
 
             if (!response.Content.Headers.ContentType?.MediaType?.StartsWith("text/html") ?? false)
@@ -222,8 +242,8 @@ public class CrawlingService : ICrawlingService
                 _logger.LogInformation("Page {Url} already processed (idempotent)", pageUrl);
             }
 
-            _logger.LogInformation("Crawled page {Url} - found {LinkCount} links ({InternalLinks} internal)",
-                pageUrl, discoveredUrls.Count, internalLinkCount);
+            _logger.LogInformation("Crawled page {Url} - found {LinkCount} total links ({InternalLinks} internal, {ExternalLinks} external). Page size: {ContentLength} chars",
+                pageUrl, discoveredUrls.Count, internalLinkCount, externalLinkCount, content.Length);
         }
         catch (HttpRequestException ex)
         {
@@ -232,6 +252,48 @@ public class CrawlingService : ICrawlingService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error processing page {Url}", pageUrl);
+        }
+    }
+
+    private async Task<HttpResponseMessage?> GetPageWithRetryAsync(string url, int maxRetries = 3)
+    {
+        for (int attempt = 1; attempt <= maxRetries; attempt++)
+        {
+            try
+            {
+                var response = await _httpClient.GetAsync(url);
+                if (response.IsSuccessStatusCode)
+                {
+                    return response;
+                }
+                
+                _logger.LogWarning("Attempt {Attempt}/{MaxRetries} failed for {Url} with status {StatusCode}", 
+                    attempt, maxRetries, url, response.StatusCode);
+                
+                if (attempt < maxRetries)
+                {
+                    await Task.Delay(1000 * attempt); // Exponential backoff
+                }
+                else
+                {
+                    return response; // Return the last response even if not successful
+                }
+            }
+            catch (HttpRequestException ex) when (attempt < maxRetries)
+            {
+                _logger.LogWarning(ex, "Attempt {Attempt}/{MaxRetries} failed for {Url}, retrying...", 
+                    attempt, maxRetries, url);
+                await Task.Delay(1000 * attempt); // Exponential backoff
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to fetch {Url} on attempt {Attempt}", url, attempt);
+                if (attempt == maxRetries) return null;
+                await Task.Delay(1000 * attempt);
+            }
+        }
+        
+        return null;
         }
     }
 }

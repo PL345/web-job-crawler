@@ -116,6 +116,8 @@ public class JobService : IJobService
             StartedAt = job.StartedAt,
             CompletedAt = job.CompletedAt,
             TotalPagesFound = job.TotalPagesFound,
+            CurrentUrl = job.CurrentUrl,
+            PagesProcessed = job.PagesProcessed,
             Pages = pageNodes
         };
     }
@@ -185,6 +187,8 @@ public class JobDetailsDto
     public DateTime? StartedAt { get; set; }
     public DateTime? CompletedAt { get; set; }
     public int TotalPagesFound { get; set; }
+    public string? CurrentUrl { get; set; }
+    public int PagesProcessed { get; set; }
     public List<PageNodeDto> Pages { get; set; } = new();
 }
 

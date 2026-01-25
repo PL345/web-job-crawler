@@ -12,6 +12,10 @@ public class CrawlJob
     public string? FailureReason { get; set; }
     public int TotalPagesFound { get; set; }
     public DateTime UpdatedAt { get; set; }
+    
+    // New properties - will be added by migration
+    public string? CurrentUrl { get; set; }
+    public int PagesProcessed { get; set; }
 }
 
 public class CrawledPage

@@ -60,11 +60,22 @@ builder.Services.AddScoped<IJobService, JobService>();
 
 var app = builder.Build();
 
-// Apply migrations and create database
+// Apply EF migrations
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<CrawlerDbContext>();
-    db.Database.Migrate();
+    
+    try
+    {
+        db.Database.Migrate();
+        Log.Information("Database migrations applied successfully");
+    }
+    catch (Exception ex)
+    {
+        Log.Warning("Could not apply database migrations: {Error}", ex.Message);
+        // Fallback to EnsureCreated for development
+        db.Database.EnsureCreated();
+    }
 }
 
 app.UseSwagger(c => c.RouteTemplate = "swagger/{documentName}/swagger.json");

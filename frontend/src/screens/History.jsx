@@ -8,10 +8,13 @@ export default function History({ onSelectJob }) {
   const [error, setError] = useState('')
   const [page, setPage] = useState(1)
   const [totalPages, setTotalPages] = useState(0)
+  const [isUpdating, setIsUpdating] = useState(false)
 
   useEffect(() => {
-    const fetchJobs = async () => {
-      setLoading(true)
+    const fetchJobs = async (isInitialLoad = false) => {
+      if (isInitialLoad) setLoading(true)
+      else setIsUpdating(true)
+      
       try {
         const response = await fetch(`${API_BASE_URL}/jobs/history?page=${page}&pageSize=10`)
         if (!response.ok) throw new Error('Failed to fetch history')
@@ -21,12 +24,43 @@ export default function History({ onSelectJob }) {
       } catch (err) {
         setError(err.message)
       } finally {
-        setLoading(false)
+        if (isInitialLoad) setLoading(false)
+        else setIsUpdating(false)
       }
     }
 
-    fetchJobs()
+    // Initial load with loading state
+    fetchJobs(true)
+    
+    // Poll for updates every 3 seconds WITHOUT loading state
+    const interval = setInterval(() => fetchJobs(false), 3000)
+    return () => clearInterval(interval)
   }, [page])
+
+  const formatJobStatus = (job) => {
+    if (job.status === 'Running') {
+      return (
+        <div className="running-status">
+          <span className="status-badge" style={{ color: statusColor[job.status] }}>
+            {job.status}
+          </span>
+          <div className="progress-info">
+            <small>{job.pagesProcessed || 0} pages processed</small>
+            {job.currentUrl && (
+              <small className="current-url" title={job.currentUrl}>
+                Currently: {job.currentUrl.length > 40 ? job.currentUrl.substring(0, 40) + '...' : job.currentUrl}
+              </small>
+            )}
+          </div>
+        </div>
+      )
+    }
+    return (
+      <span className="status-badge" style={{ color: statusColor[job.status] }}>
+        {job.status}
+      </span>
+    )
+  }
 
   const statusColor = {
     'Pending': '#666',
@@ -46,7 +80,10 @@ export default function History({ onSelectJob }) {
 
   return (
     <div className="screen history">
-      <h2>Crawl History</h2>
+      <div className="history-header">
+        <h2>Crawl History</h2>
+        {isUpdating && <div className="update-indicator">●</div>}
+      </div>
 
       {error && <div className="error-message">{error}</div>}
 
@@ -71,11 +108,9 @@ export default function History({ onSelectJob }) {
                 <tr key={job.id}>
                   <td className="url-cell">{job.inputUrl}</td>
                   <td>
-                    <span className="status-badge" style={{ color: statusColor[job.status] }}>
-                      {job.status}
-                    </span>
+                    {formatJobStatus(job)}
                   </td>
-                  <td>{job.totalPagesFound || 0}</td>
+                  <td>{job.totalPagesFound || job.pagesProcessed || 0}</td>
                   <td>{new Date(job.createdAt).toLocaleString()}</td>
                   <td>
                     <button

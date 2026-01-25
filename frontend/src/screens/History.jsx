@@ -30,6 +30,7 @@ export default function History({ onSelectJob }) {
   }
 
   useEffect(() => {
+    // Initial load with loading state
     fetchJobs(true)
     
     // Poll for updates every 3 seconds WITHOUT loading state

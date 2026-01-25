@@ -21,8 +21,8 @@ builder.Services.AddCors(options =>
     options.AddPolicy("AllowAll", policy =>
     {
         policy.AllowAnyOrigin()
-            .AllowAnyMethod()
-            .AllowAnyHeader();
+              .AllowAnyMethod()
+              .AllowAnyHeader();
     });
 });
 
@@ -85,19 +85,8 @@ app.UseSwaggerUI(c =>
     c.RoutePrefix = "swagger";
 });
 
+// CORS middleware handles preflight requests automatically
 app.UseCors("AllowAll");
-
-// Handle preflight requests
-app.Use(async (context, next) =>
-{
-    if (context.Request.Method == "OPTIONS")
-    {
-        context.Response.StatusCode = 200;
-        await context.Response.CompleteAsync();
-        return;
-    }
-    await next();
-});
 
 app.UseAuthorization();
 app.MapControllers();

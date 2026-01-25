@@ -70,7 +70,7 @@ export default function History({ onSelectJob }) {
 
     setCancellingJobId(jobId)
     try {
-      const response = await fetch(`${API_BASE_URL}/jobs/${jobId}/cancel`, {
+      const response = await fetch(`${API_BASE_URL}/api/jobs/${jobId}/cancel`, {
         method: 'POST'
       })
 

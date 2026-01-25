@@ -294,6 +294,5 @@ public class CrawlingService : ICrawlingService
         }
         
         return null;
-        }
     }
 }

@@ -14,7 +14,7 @@ export default function StartCrawl({ onJobCreated }) {
     setLoading(true)
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/jobs/create`, {
+      const response = await fetch(`${API_BASE_URL}/jobs/create`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url, maxDepth: parseInt(maxDepth) })

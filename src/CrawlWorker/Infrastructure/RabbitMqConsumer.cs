@@ -53,29 +53,37 @@ public class RabbitMqConsumer : IMessageConsumer
             var consumer = new EventingBasicConsumer(_channel);
             _logger.LogInformation("Consumer created");
             
-            consumer.Received += (model, ea) =>
+            consumer.Received += async (model, ea) =>
             {
                 try
                 {
-                    _logger.LogInformation("Message received");
+                    _logger.LogInformation("Message received from queue");
                     var body = ea.Body.ToArray();
                     var json = Encoding.UTF8.GetString(body);
-                    _logger.LogInformation("Message content: {MessageContent}", json);
+                    _logger.LogDebug("Message content: {MessageContent}", json);
                     var message = JsonConvert.DeserializeObject<CrawlJobCreated>(json);
 
                     if (message != null && _jobCreatedHandler != null)
                     {
                         _logger.LogInformation("Processing message with JobId {JobId}", message.JobId);
-                        // Run async handler synchronously
-                        _jobCreatedHandler(message).GetAwaiter().GetResult();
+                        await _jobCreatedHandler(message);
                         _channel.BasicAck(ea.DeliveryTag, false);
-                        _logger.LogInformation("Message acknowledged");
+                        _logger.LogInformation("Message acknowledged for JobId {JobId}", message.JobId);
+                    }
+                    else
+                    {
+                        _logger.LogWarning("Message deserialization failed or handler is null");
+                        _channel.BasicNack(ea.DeliveryTag, false, true); // Requeue
                     }
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Error processing message");
-                    _channel.BasicNack(ea.DeliveryTag, false, false);
+                    _logger.LogError(ex, "Error processing message, sending to DLQ");
+                    try
+                    {
+                        _channel.BasicNack(ea.DeliveryTag, false, false); // Don't requeue
+                    }
+                    catch { }
                     SendToDeadLetterQueue(ea.Body.ToArray());
                 }
             };

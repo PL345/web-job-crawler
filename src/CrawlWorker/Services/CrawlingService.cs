@@ -35,6 +35,8 @@ public class CrawlingService : ICrawlingService
         _httpClient.DefaultRequestHeaders.Add("Accept-Encoding", "gzip, deflate");
         _httpClient.DefaultRequestHeaders.Add("Connection", "keep-alive");
         _httpClient.DefaultRequestHeaders.Add("Upgrade-Insecure-Requests", "1");
+        
+        _logger.LogInformation("CrawlingService initialized - HttpClient configured with proper headers and timeout");
     }
 
     public async Task CrawlAsync(Guid jobId, string startUrl, int maxDepth)
@@ -182,12 +184,53 @@ public class CrawlingService : ICrawlingService
             var titleNode = doc.DocumentNode.SelectSingleNode("//title");
             var title = titleNode?.InnerText ?? string.Empty;
 
-            var links = doc.DocumentNode.SelectNodes("//a[@href]") ?? new HtmlNodeCollection(null);
+            // Try multiple ways to get links
+            var links = doc.DocumentNode.SelectNodes("//a[@href]");
+            if (links == null) links = new HtmlNodeCollection(null);
+            
+            var allAnchors = doc.DocumentNode.SelectNodes("//a");
+            
+            // Debug logging - check for redirects and actual final URL
+            _logger.LogInformation("Request for {OriginalUrl}: Final URL: {FinalUrl}, Status: {Status}, Content-Type: {ContentType}, Size: {Size} bytes", 
+                pageUrl, response.RequestMessage?.RequestUri, response.StatusCode, 
+                response.Content.Headers.ContentType?.MediaType, content.Length);
+            _logger.LogInformation("Link extraction: found {LinkCount} with //a[@href], {AllCount} total <a> tags", 
+                links.Count, allAnchors?.Count ?? 0);
+            
+            // Log full HTML content for debugging
+            _logger.LogInformation("===== SCRAPED HTML START =====");
+            _logger.LogInformation("URL: {Url}", pageUrl);
+            _logger.LogInformation("Full HTML Content ({Length} chars):\n{HtmlContent}", content.Length, content);
+            _logger.LogInformation("===== SCRAPED HTML END =====");
+            
+            // Check if we got redirected to localhost
+            if (response.RequestMessage?.RequestUri?.Host?.Contains("localhost") ?? false)
+            {
+                _logger.LogError("WARNING: Request was redirected to localhost! Original: {Original}, Final: {Final}", 
+                    pageUrl, response.RequestMessage.RequestUri);
+            }
+            
+            if (allAnchors?.Count == 0 && content.Length > 500)
+            {
+                var snippet = content.Substring(0, Math.Min(400, content.Length))
+                    .Replace("\n", " ").Replace("\r", "");
+                _logger.LogInformation("HTML snippet: {HtmlSnippet}", snippet);
+                
+                // Check if this looks like an error page or missing content
+                if (content.Contains("<!DOCTYPE") || content.Contains("<html"))
+                {
+                    _logger.LogWarning("Response contains HTML but no anchors found. This may indicate:");
+                    _logger.LogWarning("  1. JavaScript-rendered content (not available via simple HTTP request)");
+                    _logger.LogWarning("  2. WAF/Bot protection blocking the request");
+                    _logger.LogWarning("  3. Response being stripped by a proxy in the container environment");
+                }
+            }
+            
             var discoveredUrls = new List<string>();
             var internalLinkCount = 0;
             var externalLinkCount = 0;
 
-            foreach (var link in links)
+            foreach (var link in links ?? new HtmlNodeCollection(null))
             {
                 var href = link.GetAttributeValue("href", string.Empty);
                 var resolvedUrl = UrlNormalizer.ResolveRelativeUrl(pageUrl, href);
@@ -333,7 +376,12 @@ public class CrawlingService : ICrawlingService
         {
             try
             {
+                _logger.LogDebug("Fetching URL (attempt {Attempt}/{MaxRetries}): {Url}", attempt, maxRetries, url);
                 var response = await _httpClient.GetAsync(url);
+                
+                _logger.LogDebug("Response received for {Url}: Status={StatusCode}, ContentType={ContentType}, ContentLength={ContentLength}",
+                    url, response.StatusCode, response.Content.Headers.ContentType?.MediaType, response.Content.Headers.ContentLength);
+                
                 if (response.IsSuccessStatusCode)
                 {
                     return response;

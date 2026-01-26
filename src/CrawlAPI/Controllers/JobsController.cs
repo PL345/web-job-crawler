@@ -1,5 +1,6 @@
-using Microsoft.AspNetCore.Mvc;
+using CrawlAPI.Contracts.Jobs;
 using CrawlAPI.Services;
+using Microsoft.AspNetCore.Mvc;
 
 namespace CrawlAPI.Controllers;
 
@@ -61,19 +62,17 @@ public class JobsController : ControllerBase
     [HttpGet("history")]
     public async Task<IActionResult> GetHistory([FromQuery] int page = 1, [FromQuery] int pageSize = 10)
     {
-        if (page < 1) page = 1;
-        if (pageSize < 1 || pageSize > 100) pageSize = 10;
-
         var (jobs, total) = await _jobService.GetJobHistoryAsync(page, pageSize);
-
-        return Ok(new
+        var response = new JobHistoryResponse
         {
-            jobs = jobs,
-            page = page,
-            pageSize = pageSize,
-            total = total,
-            totalPages = (total + pageSize - 1) / pageSize
-        });
+            Jobs = jobs,
+            Page = page,
+            PageSize = pageSize,
+            Total = total,
+            TotalPages = (total + pageSize - 1) / pageSize
+        };
+
+        return Ok(response);
     }
 
     [HttpGet("health")]
@@ -99,10 +98,4 @@ public class JobsController : ControllerBase
             return StatusCode(500, new { error = "Internal server error" });
         }
     }
-}
-
-public class CreateJobRequest
-{
-    public string Url { get; set; } = string.Empty;
-    public int? MaxDepth { get; set; }
 }

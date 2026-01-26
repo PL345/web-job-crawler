@@ -1,5 +1,6 @@
 using CrawlAPI.Infrastructure;
 using CrawlAPI.Services;
+using CrawlAPI.Middleware;
 using Microsoft.EntityFrameworkCore;
 using RabbitMQ.Client;
 using Serilog;
@@ -73,7 +74,6 @@ using (var scope = app.Services.CreateScope())
     catch (Exception ex)
     {
         Log.Warning("Could not apply database migrations: {Error}", ex.Message);
-        // Fallback to EnsureCreated for development
         db.Database.EnsureCreated();
     }
 }
@@ -85,9 +85,8 @@ app.UseSwaggerUI(c =>
     c.RoutePrefix = "swagger";
 });
 
-// CORS middleware handles preflight requests automatically
+app.UseMiddleware<RequestTimingMiddleware>();
 app.UseCors("AllowAll");
-
 app.UseAuthorization();
 app.MapControllers();
 

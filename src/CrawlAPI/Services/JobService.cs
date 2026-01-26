@@ -1,4 +1,6 @@
+using CrawlAPI.Contracts.Jobs;
 using CrawlAPI.Infrastructure;
+using CrawlAPI.Services.Internal;
 using SharedDomain.Models;
 using SharedDomain.Messages;
 using Microsoft.EntityFrameworkCore;
@@ -29,11 +31,14 @@ public class JobService : IJobService
 
     public async Task<CrawlJob> CreateJobAsync(string url, int maxDepth)
     {
+        url = ValidationHelper.NormalizeUrl(url);
+        var normalizedDepth = ValidationHelper.NormalizeMaxDepth(maxDepth);
+
         var job = new CrawlJob
         {
             Id = Guid.NewGuid(),
             InputUrl = url,
-            MaxDepth = Math.Max(1, Math.Min(maxDepth, 5)),
+            MaxDepth = normalizedDepth,
             Status = "Pending",
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
@@ -44,7 +49,6 @@ public class JobService : IJobService
 
         var correlationId = Guid.NewGuid();
         var message = new CrawlJobCreated(job.Id, job.InputUrl, job.MaxDepth, correlationId);
-
         await _publisher.PublishAsync(message, "crawl.events");
 
         var jobEvent = new JobEvent
@@ -57,7 +61,7 @@ public class JobService : IJobService
             EventData = new Dictionary<string, object>
             {
                 { "url", url },
-                { "maxDepth", maxDepth }
+                { "maxDepth", normalizedDepth }
             }
         };
 
@@ -65,7 +69,6 @@ public class JobService : IJobService
         await _db.SaveChangesAsync();
 
         _logger.LogInformation("Created job {JobId} for URL {Url}", job.Id, url);
-
         return job;
     }
 
@@ -97,30 +100,7 @@ public class JobService : IJobService
             .OrderBy(p => p.CreatedAt)
             .ToListAsync();
 
-        // For now, let's return a flat list to avoid hierarchy issues
-        var pageNodes = pages.Select(p => new PageNodeDto
-        {
-            Url = p.Url,
-            Title = p.Title,
-            DomainLinkRatio = p.DomainLinkRatio,
-            OutgoingLinksCount = p.OutgoingLinksCount,
-            InternalLinksCount = p.InternalLinksCount,
-            Children = new List<PageNodeDto>() // Empty for now
-        }).ToList();
-
-        return new JobDetailsDto
-        {
-            JobId = job.Id,
-            InputUrl = job.InputUrl,
-            Status = job.Status,
-            CreatedAt = job.CreatedAt,
-            StartedAt = job.StartedAt,
-            CompletedAt = job.CompletedAt,
-            TotalPagesFound = job.TotalPagesFound,
-            CurrentUrl = job.CurrentUrl,
-            PagesProcessed = job.PagesProcessed,
-            Pages = pageNodes
-        };
+        return JobMapper.MapToJobDetailsDto(job, pages);
     }
 
     public async Task<bool> CancelJobAsync(Guid jobId)
@@ -129,7 +109,6 @@ public class JobService : IJobService
         if (job == null)
             return false;
 
-        // Only allow cancelling jobs that are Pending or Running
         if (job.Status != "Pending" && job.Status != "Running")
             return false;
 
@@ -141,86 +120,6 @@ public class JobService : IJobService
         await _db.SaveChangesAsync();
 
         _logger.LogInformation("Job {JobId} cancelled by user", jobId);
-
         return true;
     }
-
-    private List<PageNodeDto> BuildPageHierarchy(string rootUrl, List<CrawledPage> pages, List<PageLink> pageLinks)
-    {
-        var pageMap = pages.ToDictionary(p => p.NormalizedUrl);
-        var pageById = pages.ToDictionary(p => p.Id);
-        
-        // Find root pages (pages that match the input URL)
-        var normalizedRootUrl = SharedDomain.Utilities.UrlNormalizer.Normalize(rootUrl);
-        var roots = pages.Where(p => p.NormalizedUrl == normalizedRootUrl).ToList();
-
-        return roots.Select(root => BuildNode(root, pageById, pageLinks, new HashSet<Guid>())).ToList();
-    }
-
-    private PageNodeDto BuildNode(CrawledPage page, Dictionary<Guid, CrawledPage> pageById, List<PageLink> pageLinks, HashSet<Guid> visited)
-    {
-        if (visited.Contains(page.Id))
-        {
-            // Return a simple node without children to break the cycle
-            return new PageNodeDto 
-            { 
-                Url = page.Url, 
-                Title = page.Title,
-                DomainLinkRatio = page.DomainLinkRatio,
-                OutgoingLinksCount = page.OutgoingLinksCount,
-                InternalLinksCount = page.InternalLinksCount,
-                Children = new List<PageNodeDto>() // Empty to break cycle
-            };
-        }
-
-        visited.Add(page.Id);
-
-        // Find child pages that this page links to
-        var childLinks = pageLinks.Where(pl => pl.SourcePageId == page.Id).ToList();
-        var children = new List<PageNodeDto>();
-
-        foreach (var link in childLinks)
-        {
-            // Find the target page if it was crawled
-            var targetPage = pageById.Values.FirstOrDefault(p => p.NormalizedUrl == SharedDomain.Utilities.UrlNormalizer.Normalize(link.TargetUrl));
-            if (targetPage != null && !visited.Contains(targetPage.Id))
-            {
-                children.Add(BuildNode(targetPage, pageById, pageLinks, new HashSet<Guid>(visited))); // Pass copy of visited set
-            }
-        }
-
-        return new PageNodeDto
-        {
-            Url = page.Url,
-            Title = page.Title,
-            DomainLinkRatio = page.DomainLinkRatio,
-            OutgoingLinksCount = page.OutgoingLinksCount,
-            InternalLinksCount = page.InternalLinksCount,
-            Children = children
-        };
-    }
-}
-
-public class JobDetailsDto
-{
-    public Guid JobId { get; set; }
-    public string InputUrl { get; set; } = string.Empty;
-    public string Status { get; set; } = string.Empty;
-    public DateTime CreatedAt { get; set; }
-    public DateTime? StartedAt { get; set; }
-    public DateTime? CompletedAt { get; set; }
-    public int TotalPagesFound { get; set; }
-    public string? CurrentUrl { get; set; }
-    public int PagesProcessed { get; set; }
-    public List<PageNodeDto> Pages { get; set; } = new();
-}
-
-public class PageNodeDto
-{
-    public string Url { get; set; } = string.Empty;
-    public string? Title { get; set; }
-    public decimal? DomainLinkRatio { get; set; }
-    public int OutgoingLinksCount { get; set; }
-    public int InternalLinksCount { get; set; }
-    public List<PageNodeDto> Children { get; set; } = new();
 }

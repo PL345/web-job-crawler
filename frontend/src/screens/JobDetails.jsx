@@ -1,145 +1,100 @@
-import { useState, useEffect } from 'react'
-import { API_BASE_URL } from '../config'
+import { useState, useCallback, memo } from 'react'
+import { useJobPolling } from '../hooks/useJobPolling'
+import { apiClient, ApiError } from '../utils/apiClient'
+import { Button, Card, StatusBadge, Alert, ProgressIndicator } from '../components/ui'
 import '../styles/screens.css'
 
 export default function JobDetails({ jobId, onBack }) {
   const [job, setJob] = useState(null)
   const [details, setDetails] = useState(null)
-  const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [cancelling, setCancelling] = useState(false)
 
-  useEffect(() => {
-    let isInitialLoad = true
+  useJobPolling(jobId, async (jobData) => {
+    setJob(jobData)
+    setError('')
     
-    const pollJob = async () => {
+    if ((jobData.status === 'Completed' || jobData.status === 'Failed') && !details) {
       try {
-        const response = await fetch(`${API_BASE_URL}/jobs/${jobId}`)
-        if (!response.ok) throw new Error('Failed to fetch job')
-        const jobData = await response.json()
-        setJob(jobData)
-
-        if (jobData.status === 'Completed' || jobData.status === 'Failed') {
-          const detailsResponse = await fetch(`${API_BASE_URL}/jobs/${jobId}/details`)
-          if (detailsResponse.ok) {
-            const detailsData = await detailsResponse.json()
-            setDetails(detailsData)
-          }
-        }
-        
-        // Only set loading false after first successful load
-        if (isInitialLoad) {
-          setLoading(false)
-          isInitialLoad = false
-        }
+        const detailsData = await apiClient.getJobDetails(jobId)
+        setDetails(detailsData)
       } catch (err) {
-        setError(err.message)
-        setLoading(false)
+        console.error('Failed to fetch job details:', err)
       }
     }
+  }, { stopOnTerminal: true })
 
-    pollJob()
-    const interval = setInterval(pollJob, 2000)
-    return () => clearInterval(interval)
-  }, [jobId])
-
-  if (loading && !job) {
-    return (
-      <div className="screen job-details">
-        <div className="loading">Loading job details...</div>
-      </div>
-    )
-  }
-
-  if (error) {
-    return (
-      <div className="screen job-details">
-        <div className="error-message">{error}</div>
-        <button onClick={onBack} className="btn-secondary">
-          Back
-        </button>
-      </div>
-    )
-  }
-
-  const statusColor = {
-    'Pending': '#666',
-    'Running': '#2563eb',
-    'Completed': '#059669',
-    'Failed': '#dc2626',
-    'Cancelled': '#666'
-  }
-
-  const handleCancelJob = async () => {
-    if (!confirm('Are you sure you want to cancel this job?')) {
-      return
-    }
-
+  const handleCancelJob = useCallback(async () => {
+    if (!confirm('Are you sure you want to cancel this job?')) return
     setCancelling(true)
     try {
-      const response = await fetch(`${API_BASE_URL}/jobs/${jobId}/cancel`, {
-        method: 'POST'
-      })
-
-      if (!response.ok) {
-        throw new Error('Failed to cancel job')
-      }
-
-      // Job will be updated by the polling
+      await apiClient.cancelJob(jobId)
     } catch (err) {
-      setError('Failed to cancel job: ' + err.message)
+      setError(err instanceof ApiError ? err.message : 'Failed to cancel job')
     } finally {
       setCancelling(false)
     }
+  }, [jobId])
+
+  if (!job) {
+    return (
+      <div className="screen job-details">
+        <Alert type="info" message="Loading job details..." dismissible={false} />
+      </div>
+    )
   }
+
+  const isTerminal = ['Completed', 'Failed', 'Cancelled'].includes(job.status)
+  const progress = job.totalPagesFound || job.pagesProcessed || 0
 
   return (
     <div className="screen job-details">
-      <button onClick={onBack} className="btn-back">← Back</button>
+      {error && <Alert type="error" message={error} onClose={() => setError('')} />}
+      
+      <Button variant="secondary" onClick={onBack} className="mb-20">← Back</Button>
 
-      <div className="job-header">
+      <Card className="job-header">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <h2>Job Details</h2>
-          {(job?.status === 'Pending' || job?.status === 'Running') && (
-            <button
+          {(job.status === 'Pending' || job.status === 'Running') && (
+            <Button
+              variant="danger"
+              size="sm"
               onClick={handleCancelJob}
-              className="btn-cancel"
-              disabled={cancelling}
+              loading={cancelling}
             >
               {cancelling ? 'Cancelling...' : 'Cancel Job'}
-            </button>
+            </Button>
           )}
         </div>
         <div className="job-info">
           <div className="info-item">
             <span className="label">Job ID:</span>
-            <span className="value">{job?.id}</span>
+            <span className="value">{job.id}</span>
           </div>
           <div className="info-item">
             <span className="label">URL:</span>
-            <span className="value">{job?.inputUrl}</span>
+            <span className="value">{job.inputUrl}</span>
           </div>
         </div>
-      </div>
+      </Card>
 
-      <div className="job-status">
+      <Card className="job-status">
         <div className="status-row">
           <span className="label">Status:</span>
-          <span className="status" style={{ color: statusColor[job?.status] }}>
-            {job?.status}
-          </span>
+          <StatusBadge status={job.status} />
         </div>
         <div className="status-row">
           <span className="label">Pages Found:</span>
-          <span className="value">{job?.totalPagesFound || job?.pagesProcessed || 0}</span>
+          <span className="value">{progress}</span>
         </div>
-        {job?.status === 'Running' && job?.pagesProcessed > 0 && (
+        {job.status === 'Running' && job.pagesProcessed > 0 && (
           <div className="status-row">
             <span className="label">Pages Processed:</span>
             <span className="value">{job.pagesProcessed}</span>
           </div>
         )}
-        {job?.currentUrl && (
+        {job.currentUrl && (
           <div className="status-row">
             <span className="label">Currently Crawling:</span>
             <span className="value current-url" title={job.currentUrl}>
@@ -147,35 +102,30 @@ export default function JobDetails({ jobId, onBack }) {
             </span>
           </div>
         )}
-        {job?.startedAt && (
+        {job.startedAt && (
           <div className="status-row">
             <span className="label">Started:</span>
             <span className="value">{new Date(job.startedAt).toLocaleString()}</span>
           </div>
         )}
-        {job?.completedAt && (
+        {job.completedAt && (
           <div className="status-row">
             <span className="label">Completed:</span>
             <span className="value">{new Date(job.completedAt).toLocaleString()}</span>
           </div>
         )}
-        {job?.failureReason && (
-          <div className="status-row error">
-            <span className="label">Error:</span>
-            <span className="value">{job.failureReason}</span>
-          </div>
-        )}
-      </div>
+      </Card>
 
-      {job?.status === 'Running' && (
-        <div className="progress-container">
-          <div className="spinner"></div>
+      {job.status === 'Running' && (
+        <Card className="progress-section">
+          <div className="spinner" />
           <div className="progress-text">
             <p>Crawling in progress...</p>
             {job.pagesProcessed > 0 && (
-              <p className="progress-stats">
-                {job.pagesProcessed} pages processed
-              </p>
+              <>
+                <ProgressIndicator current={job.pagesProcessed} total={job.pagesProcessed + 1} label="Progress" />
+                <p className="progress-stats">{job.pagesProcessed} pages processed</p>
+              </>
             )}
             {job.currentUrl && (
               <p className="current-page">
@@ -184,43 +134,28 @@ export default function JobDetails({ jobId, onBack }) {
               </p>
             )}
           </div>
-        </div>
+        </Card>
       )}
 
-      {job?.status === 'Failed' && (
-        <div className="failure-container">
-          <div className="failure-icon">⚠️</div>
-          <div className="failure-content">
-            <h3>Crawl Failed</h3>
-            <p className="failure-reason">{job.failureReason || 'An unknown error occurred'}</p>
-            {job.pagesProcessed > 0 && (
-              <p className="partial-results">
-                {job.pagesProcessed} pages were successfully crawled before the failure.
-              </p>
-            )}
-          </div>
-        </div>
+      {job.status === 'Failed' && (
+        <Alert type="error" message={job.failureReason || 'An unknown error occurred'} dismissible={false} />
       )}
 
-      {details && job?.status === 'Completed' && (
-        <div className="pages-tree">
-          <h3>Discovered Pages</h3>
-          <PageTree pages={details.pages} />
-        </div>
-      )}
-
-      {details && job?.status === 'Failed' && job?.pagesProcessed > 0 && (
-        <div className="pages-tree">
-          <h3>Partially Discovered Pages</h3>
-          <p className="partial-note">These pages were crawled before the failure occurred.</p>
-          <PageTree pages={details.pages} />
-        </div>
+      {details && isTerminal && (
+        <Card>
+          <h3 className="mb-16">Discovered Pages</h3>
+          {details.pages.length > 0 ? (
+            <PageTree pages={details.pages} />
+          ) : (
+            <p className="text-muted">No pages discovered.</p>
+          )}
+        </Card>
       )}
     </div>
   )
 }
 
-function PageTree({ pages }) {
+const PageTree = memo(function PageTree({ pages }) {
   return (
     <ul className="tree">
       {pages.map((page, idx) => (
@@ -242,4 +177,4 @@ function PageTree({ pages }) {
       ))}
     </ul>
   )
-}
+})

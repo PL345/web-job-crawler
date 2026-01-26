@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { API_BASE_URL } from '../config'
+import { apiClient, ApiError } from '../utils/apiClient'
+import { Button, Card, Alert } from '../components/ui'
 import '../styles/screens.css'
 
 export default function StartCrawl({ onJobCreated }) {
@@ -14,21 +15,10 @@ export default function StartCrawl({ onJobCreated }) {
     setLoading(true)
 
     try {
-      const response = await fetch(`${API_BASE_URL}/jobs/create`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url, maxDepth: parseInt(maxDepth) })
-      })
-
-      if (!response.ok) {
-        const data = await response.json()
-        throw new Error(data.error || 'Failed to create job')
-      }
-
-      const data = await response.json()
+      const data = await apiClient.createJob(url, parseInt(maxDepth))
       onJobCreated(data.jobId)
     } catch (err) {
-      setError(err.message)
+      setError(err instanceof ApiError ? err.message : 'Failed to create job')
     } finally {
       setLoading(false)
     }
@@ -36,7 +26,7 @@ export default function StartCrawl({ onJobCreated }) {
 
   return (
     <div className="screen start-crawl">
-      <div className="form-container">
+      <Card className="form-container">
         <h2>Start a New Crawl</h2>
         <form onSubmit={handleSubmit}>
           <div className="form-group">
@@ -66,13 +56,13 @@ export default function StartCrawl({ onJobCreated }) {
             </select>
           </div>
 
-          {error && <div className="error-message">{error}</div>}
+          {error && <Alert type="error" message={error} onClose={() => setError('')} />}
 
-          <button type="submit" disabled={loading} className="btn-primary">
+          <Button type="submit" loading={loading} disabled={loading}>
             {loading ? 'Starting...' : 'Start Crawl'}
-          </button>
+          </Button>
         </form>
-      </div>
+      </Card>
     </div>
   )
 }

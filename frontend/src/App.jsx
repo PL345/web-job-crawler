@@ -1,8 +1,9 @@
-import { useState } from 'react'
-import StartCrawl from './screens/StartCrawl'
-import JobDetails from './screens/JobDetails'
-import History from './screens/History'
-import './App.css'
+import { useState, lazy, Suspense } from 'react'
+import './styles/App.css'
+
+const StartCrawl = lazy(() => import('./screens/StartCrawl'))
+const JobDetails = lazy(() => import('./screens/JobDetails'))
+const History = lazy(() => import('./screens/History'))
 
 export default function App() {
   const [currentScreen, setCurrentScreen] = useState('start')
@@ -47,15 +48,17 @@ export default function App() {
       </header>
 
       <main className="app-main">
-        {currentScreen === 'start' && (
-          <StartCrawl onJobCreated={handleJobCreated} />
-        )}
-        {currentScreen === 'details' && selectedJobId && (
-          <JobDetails jobId={selectedJobId} onBack={handleBack} />
-        )}
-        {currentScreen === 'history' && (
-          <History onSelectJob={handleSelectJob} />
-        )}
+        <Suspense fallback={<div className="loading-fallback">Loading...</div>}>
+          {currentScreen === 'start' && (
+            <StartCrawl onJobCreated={handleJobCreated} />
+          )}
+          {currentScreen === 'details' && selectedJobId && (
+            <JobDetails jobId={selectedJobId} onBack={handleBack} />
+          )}
+          {currentScreen === 'history' && (
+            <History onSelectJob={handleSelectJob} />
+          )}
+        </Suspense>
       </main>
     </div>
   )

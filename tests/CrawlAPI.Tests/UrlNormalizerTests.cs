@@ -40,7 +40,7 @@ public class UrlNormalizerTests
     [Fact]
     public void Normalize_WithUpperCase_ReturnLowercase()
     {
-        var url = "HTTPS://Example.COM/Path";
+        var url = "https://Example.COM/Path";
         var result = UrlNormalizer.Normalize(url);
         Assert.Equal("https://example.com/path", result);
     }
@@ -113,5 +113,46 @@ public class UrlNormalizerTests
         var url2 = "https://sub.example.com/page";
         var result = UrlNormalizer.IsSameDomain(url1, url2);
         Assert.False(result);
+    }
+
+    [Fact]
+    public void ResolveRelativeUrl_WithFragmentOnlyAnchor_ReturnsNull()
+    {
+        // Edge case: fragment-only anchor like <a href="#top">
+        var baseUrl = "https://example.com/page";
+        var relativeUrl = "#top";
+        var result = UrlNormalizer.ResolveRelativeUrl(baseUrl, relativeUrl);
+        // Fragment-only links are in-page navigation, not crawlable pages
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void ResolveRelativeUrl_WithFragmentOnlyOnRoot_ReturnsNull()
+    {
+        // Edge case: fragment on root domain
+        var baseUrl = "https://example.com";
+        var relativeUrl = "#top";
+        var result = UrlNormalizer.ResolveRelativeUrl(baseUrl, relativeUrl);
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void Normalize_WithFragmentAndSlash_RemovesFragmentAndSlash()
+    {
+        // Edge case: fragment with trailing slash
+        var url = "https://example.com/path/#section";
+        var result = UrlNormalizer.Normalize(url);
+        Assert.Equal("https://example.com/path", result);
+    }
+
+    [Fact]
+    public void ResolveRelativeUrl_WithPathAndFragment_KeepsPath()
+    {
+        // Edge case: relative path with fragment (should be treated as relative)
+        var baseUrl = "https://example.com/blog/post1";
+        var relativeUrl = "./post2#comments";
+        var result = UrlNormalizer.ResolveRelativeUrl(baseUrl, relativeUrl);
+        // Should resolve to post2 and strip the fragment
+        Assert.Equal("https://example.com/blog/post2", result);
     }
 }

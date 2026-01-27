@@ -1,16 +1,46 @@
-import { useState, useEffect, useRef, useCallback, memo } from 'react'
+import { useReducer, useEffect, useRef, useCallback, memo } from 'react'
 import { apiClient, ApiError } from '../utils/apiClient'
 import { Button, Card, StatusBadge, Skeleton, Alert } from '../components/ui'
 import '../styles/screens.css'
 
+function historyReducer(state, action) {
+  switch (action.type) {
+    case 'SET_JOBS':
+      return {
+        ...state,
+        jobs: action.payload.jobs,
+        totalPages: action.payload.totalPages
+      }
+    case 'SET_LOADING':
+      return { ...state, loading: action.payload }
+    case 'SET_UPDATING':
+      return { ...state, isUpdating: action.payload }
+    case 'SET_ERROR':
+      return { ...state, error: action.payload }
+    case 'CLEAR_ERROR':
+      return { ...state, error: '' }
+    case 'SET_PAGE':
+      return { ...state, page: action.payload }
+    case 'SET_CANCELLING':
+      return { ...state, cancellingJobId: action.payload }
+    default:
+      return state
+  }
+}
+
+const initialState = {
+  jobs: [],
+  loading: true,
+  error: '',
+  page: 1,
+  totalPages: 0,
+  isUpdating: false,
+  cancellingJobId: null
+}
+
 export default function History({ onSelectJob }) {
-  const [jobs, setJobs] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
-  const [page, setPage] = useState(1)
-  const [totalPages, setTotalPages] = useState(0)
-  const [isUpdating, setIsUpdating] = useState(false)
-  const [cancellingJobId, setCancellingJobId] = useState(null)
+  const [state, dispatch] = useReducer(historyReducer, initialState)
+  const { jobs, loading, error, page, totalPages, isUpdating, cancellingJobId } = state
 
   const pollTimer = useRef(null)
   const abortRef = useRef(null)
@@ -26,8 +56,7 @@ export default function History({ onSelectJob }) {
   }
 
   const fetchJobs = useCallback(async (isInitialLoad = false) => {
-    if (isInitialLoad) setLoading(true)
-    else setIsUpdating(true)
+    dispatch({ type: isInitialLoad ? 'SET_LOADING' : 'SET_UPDATING', payload: true })
 
     if (abortRef.current) abortRef.current.abort()
     abortRef.current = new AbortController()
@@ -35,31 +64,29 @@ export default function History({ onSelectJob }) {
     try {
       const data = await apiClient.getJobHistory(page, 10, { signal: abortRef.current.signal })
       if (isMounted.current) {
-        setJobs(data.jobs)
-        setTotalPages(data.totalPages)
-        setError('')
+        dispatch({ type: 'SET_JOBS', payload: { jobs: data.jobs, totalPages: data.totalPages } })
+        dispatch({ type: 'CLEAR_ERROR' })
       }
     } catch (err) {
       if (err.name !== 'AbortError' && isMounted.current) {
-        setError(err instanceof ApiError ? err.message : 'Failed to load history')
+        dispatch({ type: 'SET_ERROR', payload: err instanceof ApiError ? err.message : 'Failed to load history' })
       }
     } finally {
-      if (isInitialLoad) setLoading(false)
-      else setIsUpdating(false)
+      dispatch({ type: isInitialLoad ? 'SET_LOADING' : 'SET_UPDATING', payload: false })
     }
   }, [page])
 
   const handleCancelJob = useCallback(async (jobId) => {
     if (!confirm('Are you sure you want to cancel this job?')) return
 
-    setCancellingJobId(jobId)
+    dispatch({ type: 'SET_CANCELLING', payload: jobId })
     try {
       await apiClient.cancelJob(jobId)
       await fetchJobs(false)
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to cancel job')
+      dispatch({ type: 'SET_ERROR', payload: err instanceof ApiError ? err.message : 'Failed to cancel job' })
     } finally {
-      setCancellingJobId(null)
+      dispatch({ type: 'SET_CANCELLING', payload: null })
     }
   }, [fetchJobs])
 
@@ -113,7 +140,7 @@ export default function History({ onSelectJob }) {
         {isUpdating && <div className="update-indicator">●</div>}
       </div>
 
-      {error && <Alert type="error" message={error} onClose={() => setError('')} />}
+      {error && <Alert type="error" message={error} onClose={() => dispatch({ type: 'CLEAR_ERROR' })} />}
 
       {jobs.length === 0 ? (
         <Card className="empty-state">
@@ -174,7 +201,7 @@ export default function History({ onSelectJob }) {
         <Button
           variant="secondary"
           size="sm"
-          onClick={() => setPage(p => Math.max(1, p - 1))}
+          onClick={() => dispatch({ type: 'SET_PAGE', payload: Math.max(1, page - 1) })}
           disabled={page === 1}
         >
           Previous
@@ -183,7 +210,7 @@ export default function History({ onSelectJob }) {
         <Button
           variant="secondary"
           size="sm"
-          onClick={() => setPage(p => p + 1)}
+          onClick={() => dispatch({ type: 'SET_PAGE', payload: page + 1 })}
           disabled={page >= totalPages}
         >
           Next

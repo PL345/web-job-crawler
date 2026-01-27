@@ -1,38 +1,78 @@
-import { useState, useCallback, memo } from 'react'
+import { useReducer, useCallback, memo } from 'react'
 import { useJobPolling } from '../hooks/useJobPolling'
 import { apiClient, ApiError } from '../utils/apiClient'
 import { Button, Card, StatusBadge, Alert, ProgressIndicator } from '../components/ui'
 import '../styles/screens.css'
 
-export default function JobDetails({ jobId, onBack }) {
-  const [job, setJob] = useState(null)
-  const [details, setDetails] = useState(null)
-  const [error, setError] = useState('')
-  const [cancelling, setCancelling] = useState(false)
+function jobDetailsReducer(state, action) {
+  switch (action.type) {
+    case 'SET_JOB':
+      return {
+        ...state,
+        job: action.payload,
+        error: ''
+      }
+    case 'SET_DETAILS':
+      return {
+        ...state,
+        details: action.payload
+      }
+    case 'SET_ERROR':
+      return {
+        ...state,
+        error: action.payload
+      }
+    case 'SET_CANCELLING':
+      return {
+        ...state,
+        cancelling: action.payload
+      }
+    case 'CLEAR_ERROR':
+      return {
+        ...state,
+        error: ''
+      }
+    default:
+      return state
+  }
+}
 
-  useJobPolling(jobId, async (jobData) => {
-    setJob(jobData)
-    setError('')
+const initialState = {
+  job: null,
+  details: null,
+  error: '',
+  cancelling: false
+}
+
+export default function JobDetails({ jobId, onBack }) {
+  const [state, dispatch] = useReducer(jobDetailsReducer, initialState)
+  const { job, details, error, cancelling } = state
+
+  useJobPolling(jobId, useCallback(async (jobData) => {
+    dispatch({ type: 'SET_JOB', payload: jobData })
     
     if ((jobData.status === 'Completed' || jobData.status === 'Failed') && !details) {
       try {
         const detailsData = await apiClient.getJobDetails(jobId)
-        setDetails(detailsData)
+        dispatch({ type: 'SET_DETAILS', payload: detailsData })
       } catch (err) {
         console.error('Failed to fetch job details:', err)
       }
     }
-  }, { stopOnTerminal: true })
+  }, [details]), { stopOnTerminal: true })
 
   const handleCancelJob = useCallback(async () => {
     if (!confirm('Are you sure you want to cancel this job?')) return
-    setCancelling(true)
+    dispatch({ type: 'SET_CANCELLING', payload: true })
     try {
       await apiClient.cancelJob(jobId)
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to cancel job')
+      dispatch({ 
+        type: 'SET_ERROR', 
+        payload: err instanceof ApiError ? err.message : 'Failed to cancel job'
+      })
     } finally {
-      setCancelling(false)
+      dispatch({ type: 'SET_CANCELLING', payload: false })
     }
   }, [jobId])
 
@@ -49,7 +89,7 @@ export default function JobDetails({ jobId, onBack }) {
 
   return (
     <div className="screen job-details">
-      {error && <Alert type="error" message={error} onClose={() => setError('')} />}
+      {error && <Alert type="error" message={error} onClose={() => dispatch({ type: 'CLEAR_ERROR' })} />}
       
       <Button variant="secondary" onClick={onBack} className="mb-20">← Back</Button>
 

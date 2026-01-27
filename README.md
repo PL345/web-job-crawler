@@ -101,7 +101,7 @@ docker-compose up --build
 ```
 
 - **RabbitMQ** (port 5672, management UI on 15672) - Message broker
-- **CrawlAPI** (port 5000) - REST API
+- **CrawlAPI** (port 3000/api via nginx, service listens on 8080) - REST API
 - **CrawlWorker** - Background processor
 - **React UI** (port 3000) - Frontend
 
@@ -171,6 +171,7 @@ Visit: `http://localhost:3000`
 | **Caching** | None | Redis | Direct DB queries acceptable for small job volumes |
 | **Tree Reconstruction** | From flat page_links rows | Pre-materialized tree | Flat structure simpler; tree built on-demand (acceptable latency) |
 | **HTTP Retry Logic** | 3 attempts max | Unlimited with backoff cap | 3 attempts + 10s timeout covers 95% of transient errors |
+| **Port Allocation** | Share 3000 via nginx (frontend + API proxied) | Separate host ports (e.g., 3000 UI / 5000 API) | GitHub Codespaces port-forwarding limits; tested Docker in this environment |
 
 ### What Was Prioritized (Implementation Order)
 

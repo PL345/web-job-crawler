@@ -173,91 +173,6 @@ Visit: `http://localhost:3000`
 | **HTTP Retry Logic** | 3 attempts max | Unlimited with backoff cap | 3 attempts + 10s timeout covers 95% of transient errors |
 | **Port Allocation** | Share 3000 via nginx (frontend + API proxied) | Separate host ports (e.g., 3000 UI / 5000 API) | GitHub Codespaces port-forwarding limits; tested Docker in this environment |
 
-### What Was Prioritized (Implementation Order)
-
-1. **End-to-End Flow** (30 min) – API + Worker + DB integration, user can submit & see status
-   - **Why First**: Validates architecture early; unblocks all other work
-   
-2. **Event-Driven Messaging** (20 min) – RabbitMQ integration, message schema
-   - **Why Second**: Core to assignment; demonstrates async patterns
-   
-3. **Crawling Logic** (30 min) – BFS algorithm, URL normalization, Domain Link Ratio
-   - **Why Third**: Non-trivial business logic; needs early validation
-   
-4. **Idempotency & Error Handling** (20 min) – Unique constraints, graceful duplicates, DLQ
-   - **Why Fourth**: Critical for robustness; impacts data model design
-   
-5. **Frontend UI** (25 min) – 3 screens, polling, progress display
-   - **Why Fifth**: User-facing; depends on stable API
-   
-6. **Tests** (10 min) – Unit tests for URL normalization & Domain Link Ratio
-   - **Why Sixth**: Validates correctness of critical logic early
-   
-7. **Documentation** (15 min) – README with architecture, choices, limitations
-   - **Why Last**: Communication layer; content depends on implementation decisions
-
-### What Was Cut (and Why)
-
-| Feature | Why Cut | Would Add (Time) |
-| **Advanced Retry Logic** | Basic backoff covers most failures | 30 min |
-| **User Authentication** | Single-tenant MVP acceptable | 60+ min |
-| **Cache Layer (Redis)** | Direct DB acceptable at this scale | 40 min |
-| **CI/CD Pipeline** | GitHub Actions setup not core feature | 30 min |
-| **Performance Optimization** | Single worker doesn't need batching/tuning | 40 min |
-| **Advanced UI Styling** | Clarity > polish per spec | 30 min |
-| **Distributed Tracing** | Correlation IDs sufficient for debugging | 50 min |
-
-### What Would Be Done Next (If More Time)
-
-**Must-Have (2 hours)**
-4. **Performance Metrics** – Track crawl speed, pages/second, time-to-first-page
-
-6. **Webhook Notifications** – Notify user when job completes
-7. **Advanced Tree Reconstruction** – Full parent→child hierarchy in UI
-**Nice-to-Have (4+ hours)**
-10. **JavaScript Rendering** – Playwright for dynamic sites
-
-```
-└──────────────────────────┬──────────────────────────────────────────┘
-                           │
-│    POST /api/jobs/create                                            │
-│    → Creates CrawlJob entity                                        │
-│    → Returns jobId to frontend                                      │
-└──────────────────────────┬──────────────────────────────────────────┘
-└──────────────────────────┬──────────────────────────────────────────┘
-                           ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│ 4. WORKER SERVICE (CrawlWorker) – .NET Background Service           │
-│    Consumes CrawlJobCreated event                                   │
-│    → Updates job status: Pending → Running                          │
-│    → BFS crawls: fetch HTML, parse links, extract metadata          │
-│    → Saves crawled_pages with metrics to PostgreSQL                 │
-│    → Updates job status: Running → Completed/Failed                 │
-│    → ACKs message on success                                        │
-└──────────────────────────┬──────────────────────────────────────────┘
-                           │
-                           ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│ 5. DATABASE (PostgreSQL - Supabase)                                 │
-│    Tables:                                                          │
-│    - crawl_jobs (job metadata, status, progress)                    │
-│    - crawled_pages (URLs, titles, metrics, status codes)            │
-│    - page_links (parent→child relationships)                        │
-│    - job_events (audit trail with correlation IDs)                  │
-└─────────────────────────────────────────────────────────────────────┘
-                           │
-                           ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│ 6. FRONTEND (React - Real-time UI)                                  │
-│    Polls /api/jobs/{jobId} every 2 seconds                          │
-│    → Displays live progress                                         │
-│    → Shows crawled pages tree                                       │
-│    → Renders metrics (domain link ratio, counts)                    │
-└─────────────────────────────────────────────────────────────────────┘
-```
-
----
-
 ## Architecture & Key Decisions
 
 ### 1. **Event-Driven Design**
@@ -467,36 +382,7 @@ Queue:  [/page2 (d:1), /page3 (d:1), /page1a (d:2), /page1b (d:2)]
 
 ## Trade-offs & Cuts
 
-### What Was Cut (for time)
-1. **SignalR / WebSocket** – Replaced with polling (simpler, sufficient for demo)
-2. **Advanced Retry Logic** – Exponential backoff not needed for 4-hour scope
-3. **Per-page HTTP Retry** – Basic timeouts only; production would add retries
-4. **User Auth** – Assumes single-tenant; production needs user isolation
-5. **Cache Layer** – No Redis; direct DB queries acceptable here
-6. **CI/CD Pipeline** – GitHub Actions skeleton not included (scope)
-7. **Advanced UI Styling** – Clean/functional over polished (spec allows)
-
-### Simplified for Scope
-- Single worker instance (production would scale horizontally)
-- No job cancellation implementation
-- Basic error messages (production would have more detail)
-- No page content caching
-- Minimal security hardening (production needs authentication, HTTPS, input validation)
-
----
-
-## If I Had More Time
-
-1. **Implement Job Cancellation** – Add cancel endpoint, update worker to check job status
-2. **Distributed Caching** – Redis for frequently accessed pages
-3. **Advanced Retry Policy** – Exponential backoff with jitter for HTTP failures
-4. **Tree Reconstruction** – Full parent→child hierarchy in Details view
-5. **Performance Tuning** – Batch inserts, connection pooling tuning, query optimization
-6. **User Authentication** – Auth0 or Supabase, job isolation per user
-7. **Monitoring** – Application Insights, Prometheus metrics
-8. **E2E Tests** – Selenium tests for UI flows
-9. **Webhook Notifications** – Notify when job completes
-10. **Advanced Crawling** – JavaScript rendering, robots.txt respect, rate limiting
+See the [Assumptions & Trade-offs](#assumptions--trade-offs) section above for detailed comparison tables.
 
 ---
 
